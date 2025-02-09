@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ระบบบันทึก Slip ธนาคาร</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -45,7 +44,8 @@
         }
         input[type="text"],
         input[type="tel"],
-        input[type="number"] {
+        input[type="number"],
+        input[type="url"] {
             width: 100%;
             padding: 10px;
             border: 1px solid #ddd;
@@ -87,11 +87,73 @@
             max-width: 100px;
             max-height: 100px;
             object-fit: cover;
+            cursor: pointer;
+            transition: transform 0.3s;
+        }
+        .preview-image:hover {
+            transform: scale(1.05);
         }
         .error {
             color: red;
             font-size: 14px;
             margin-top: 5px;
+        }
+        .success {
+            color: green;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            max-width: 90%;
+            max-height: 90vh;
+            margin: auto;
+        }
+        .modal-close {
+            position: absolute;
+            top: 15px;
+            right: 25px;
+            color: #fff;
+            font-size: 35px;
+            cursor: pointer;
+        }
+        #googleConfig {
+            margin-bottom: 20px;
+            padding: 20px;
+            background-color: #e8f0fe;
+            border-radius: 8px;
+        }
+        .info-text {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .loading::after {
+            content: "กำลังบันทึกข้อมูล...";
+            animation: dots 1.5s infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: "กำลังบันทึกข้อมูล."; }
+            40% { content: "กำลังบันทึกข้อมูล.."; }
+            60% { content: "กำลังบันทึกข้อมูล..."; }
+            80%, 100% { content: "กำลังบันทึกข้อมูล...."; }
         }
     </style>
 </head>
@@ -99,6 +161,14 @@
     <div class="container">
         <h1>ระบบบันทึก Slip ธนาคาร</h1>
         
+        <div id="googleConfig">
+            <div class="form-group">
+                <label for="scriptUrl">Google Apps Script URL:</label>
+                <input type="url" id="scriptUrl" placeholder="วาง URL ของ Google Apps Script Web App" required>
+                <div class="info-text">ตัวอย่าง: https://script.google.com/macros/s/.../exec</div>
+            </div>
+        </div>
+
         <div class="form-container">
             <form id="slipForm" onsubmit="handleSubmit(event)">
                 <div class="form-group">
@@ -123,6 +193,8 @@
                 
                 <button type="submit">บันทึกข้อมูล</button>
             </form>
+            <div id="loading" class="loading"></div>
+            <div id="submitStatus"></div>
         </div>
 
         <h2>รายการที่บันทึกแล้ว</h2>
@@ -141,37 +213,94 @@
         </table>
     </div>
 
+    <!-- Modal for image preview -->
+    <div id="imageModal" class="modal" onclick="closeModal()">
+        <span class="modal-close">&times;</span>
+        <img class="modal-content" id="modalImage">
+    </div>
+
     <script>
         let records = [];
 
-        function handleSubmit(event) {
+        async function handleSubmit(event) {
             event.preventDefault();
             
+            const scriptUrl = document.getElementById('scriptUrl').value;
+            if (!scriptUrl) {
+                alert('กรุณากรอก Google Apps Script URL');
+                return;
+            }
+
+            const loading = document.getElementById('loading');
+            const submitStatus = document.getElementById('submitStatus');
+            loading.style.display = 'block';
+            submitStatus.innerHTML = '';
+
             const name = document.getElementById('name').value;
             const phone = document.getElementById('phone').value;
             const amount = document.getElementById('amount').value;
             const slipFile = document.getElementById('slip').files[0];
             
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const record = {
-                    datetime: new Date().toLocaleString('th-TH'),
+            try {
+                const base64Image = await convertToBase64(slipFile);
+                const currentTime = new Date().toLocaleString('th-TH');
+                const formattedAmount = parseFloat(amount).toLocaleString('th-TH', {
+                    style: 'currency',
+                    currency: 'THB'
+                });
+
+                const formData = {
+                    datetime: currentTime,
                     name: name,
                     phone: phone,
-                    amount: parseFloat(amount).toLocaleString('th-TH', {
-                        style: 'currency',
-                        currency: 'THB'
-                    }),
-                    slip: e.target.result
+                    amount: formattedAmount,
+                    slipImage: base64Image
                 };
-                
-                records.push(record);
-                updateTable();
-                saveToExcel();
-                event.target.reset();
-            };
-            
-            reader.readAsDataURL(slipFile);
+
+                // Save to Google Sheets
+                try {
+                    const response = await fetch(scriptUrl, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(formData)
+                    });
+
+                    // Add to local display
+                    const record = {
+                        datetime: currentTime,
+                        name: name,
+                        phone: phone,
+                        amount: formattedAmount,
+                        slip: base64Image
+                    };
+                    
+                    records.push(record);
+                    updateTable();
+                    event.target.reset();
+                    
+                    submitStatus.innerHTML = '<div class="success">บันทึกข้อมูลสำเร็จ</div>';
+                } catch (error) {
+                    console.error('Error:', error);
+                    submitStatus.innerHTML = '<div class="error">เกิดข้อผิดพลาดในการบันทึกข้อมูล</div>';
+                }
+            } catch (error) {
+                console.error('Error processing image:', error);
+                submitStatus.innerHTML = '<div class="error">เกิดข้อผิดพลาดในการประมวลผลรูปภาพ</div>';
+            }
+
+            loading.style.display = 'none';
+        }
+
+        function convertToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
         }
 
         function updateTable() {
@@ -189,26 +318,30 @@
                 const img = document.createElement('img');
                 img.src = record.slip;
                 img.className = 'preview-image';
+                img.onclick = () => openModal(record.slip);
                 imageCell.appendChild(img);
             });
         }
 
-        function saveToExcel() {
-            const workbook = XLSX.utils.book_new();
-            
-            // Create a copy of records without the image data for Excel
-            const excelData = records.map(record => ({
-                'วันที่-เวลา': record.datetime,
-                'ชื่อ': record.name,
-                'เบอร์โทร': record.phone,
-                'จำนวนเงิน': record.amount
-            }));
-            
-            const worksheet = XLSX.utils.json_to_sheet(excelData);
-            XLSX.utils.book_append_sheet(workbook, worksheet, 'Slip Records');
-            
-            // Auto-save the Excel file
-            XLSX.writeFile(workbook, 'slip_records.xlsx');
+        // Modal functions
+        function openModal(imageSrc) {
+            const modal = document.getElementById('imageModal');
+            const modalImg = document.getElementById('modalImage');
+            modal.style.display = 'flex';
+            modalImg.src = imageSrc;
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('imageModal');
+            modal.style.display = 'none';
+        }
+
+        // Close modal when clicking outside the image
+        window.onclick = function(event) {
+            const modal = document.getElementById('imageModal');
+            if (event.target === modal) {
+                closeModal();
+            }
         }
     </script>
 </body>
