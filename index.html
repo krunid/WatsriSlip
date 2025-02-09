@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบบันทึก Slip ธนาคาร</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Sarabun', sans-serif;
+        }
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #1a73e8;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-container {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: bold;
+        }
+        input[type="text"],
+        input[type="tel"],
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #1a73e8;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #1557b0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background-color: white;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .preview-image {
+            max-width: 100px;
+            max-height: 100px;
+            object-fit: cover;
+        }
+        .error {
+            color: red;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ระบบบันทึก Slip ธนาคาร</h1>
+        
+        <div class="form-container">
+            <form id="slipForm" onsubmit="handleSubmit(event)">
+                <div class="form-group">
+                    <label for="name">ชื่อ:</label>
+                    <input type="text" id="name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="phone">เบอร์โทร:</label>
+                    <input type="tel" id="phone" pattern="[0-9]{10}" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="amount">จำนวนเงิน:</label>
+                    <input type="number" id="amount" min="0" step="0.01" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="slip">แนบ Slip:</label>
+                    <input type="file" id="slip" accept="image/*" required>
+                </div>
+                
+                <button type="submit">บันทึกข้อมูล</button>
+            </form>
+        </div>
+
+        <h2>รายการที่บันทึกแล้ว</h2>
+        <table id="recordsTable">
+            <thead>
+                <tr>
+                    <th>วันที่-เวลา</th>
+                    <th>ชื่อ</th>
+                    <th>เบอร์โทร</th>
+                    <th>จำนวนเงิน</th>
+                    <th>Slip</th>
+                </tr>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        let records = [];
+
+        function handleSubmit(event) {
+            event.preventDefault();
+            
+            const name = document.getElementById('name').value;
+            const phone = document.getElementById('phone').value;
+            const amount = document.getElementById('amount').value;
+            const slipFile = document.getElementById('slip').files[0];
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const record = {
+                    datetime: new Date().toLocaleString('th-TH'),
+                    name: name,
+                    phone: phone,
+                    amount: parseFloat(amount).toLocaleString('th-TH', {
+                        style: 'currency',
+                        currency: 'THB'
+                    }),
+                    slip: e.target.result
+                };
+                
+                records.push(record);
+                updateTable();
+                saveToExcel();
+                event.target.reset();
+            };
+            
+            reader.readAsDataURL(slipFile);
+        }
+
+        function updateTable() {
+            const tbody = document.querySelector('#recordsTable tbody');
+            tbody.innerHTML = '';
+            
+            records.forEach(record => {
+                const row = tbody.insertRow();
+                row.insertCell().textContent = record.datetime;
+                row.insertCell().textContent = record.name;
+                row.insertCell().textContent = record.phone;
+                row.insertCell().textContent = record.amount;
+                
+                const imageCell = row.insertCell();
+                const img = document.createElement('img');
+                img.src = record.slip;
+                img.className = 'preview-image';
+                imageCell.appendChild(img);
+            });
+        }
+
+        function saveToExcel() {
+            const workbook = XLSX.utils.book_new();
+            
+            // Create a copy of records without the image data for Excel
+            const excelData = records.map(record => ({
+                'วันที่-เวลา': record.datetime,
+                'ชื่อ': record.name,
+                'เบอร์โทร': record.phone,
+                'จำนวนเงิน': record.amount
+            }));
+            
+            const worksheet = XLSX.utils.json_to_sheet(excelData);
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Slip Records');
+            
+            // Auto-save the Excel file
+            XLSX.writeFile(workbook, 'slip_records.xlsx');
+        }
+    </script>
+</body>
+</html>
